@@ -1,8 +1,8 @@
 Importing
 =========
 
-Importing libs in clojure is confusing.  In order to really understand them, you have to 
-understand vars, bindings, and namespaces.  
+Importing libs in clojure is confusing.  In order to really understand them, you have to
+understand vars, bindings, and namespaces.
 
 var- A symbol that may represent something else
 binding- maps a var to some value
@@ -15,7 +15,7 @@ The require directive will import a *clojure* library into the current namespace
 the new var, it must be fully qualified::
 
     (require 'clojure.string)
-    (require '[clojure.java 
+    (require '[clojure.java
 
 :as allows one to alias the namespace to another name
 
@@ -28,12 +28,33 @@ any directive::
       (:require [clojure.reflect :as r]))
 
 
+Comparison to python
+--------------------
+
+Python::
+
+    # somefile.py
+    import logging                      # 1. general import
+    from subprocess import Popen, PIPE  # 2. import what you need
+    import queue as q                   # 3. alias a module
+    import . mymodule                   # 4. relative import
+    from . mypackage.test import Test   # 5. relative import from a package a classes
+
+
+Clojure::
+
+    (ns mystuff
+      (:require 'clojure.tools.logging)
+      (:require []))
+
+
+
 Introspection
 =============
 
 One of the great things about python was how easy it was to introspect packages, modules, classes, etc
 and I really wanted this feature too.  When learning a new language or experiment with a new feature
-or idea, working at the REPL can't be beat.  
+or idea, working at the REPL can't be beat.
 
 However, it's not abundantly clear how to do introspection in clojure.  Here are some notes I have
 taken in regards to this.
@@ -47,7 +68,7 @@ Like python, clojure has docstrings.  In order to read the docstring at the REPL
     (defn my-func [x & y]
       "destructuring example that takes a sequence, extracts the first element into x, and puts
        the remaining items in y"
-      (do 
+      (do
         (println x)
         (println y)))
 
@@ -83,6 +104,45 @@ The best way to do this is to use the clojure.reflect library::
 
     (def pb (ProcessBuilder. ["ls -al"]))
 
-    (print-table (sort-by 
+    (print-table (sort-by
+
+
+destructuring
+=============
+
+They say that lisps don't have much syntax to learn, but one area where this is not true is in the
+mini-destructuring language built into clojure.  This provides syntactic sugar to make it easier
+to pull out elements from a data structure.  Some examples.
+
+A function that takes a map, and gets keys called user and password::
+
+    (defn get-token [{:keys [user password url]}] ; this differs slightly from the let syntax
+      (send-request url user password))  ; we have extracted the map passed into get-token by keywords
+
+    (def auth {:user "sean" :pass "idunno" :url "http://foo/secret"})
+    (get-token auth)  ; notice, we only pass in the map, auth
+
+    ; The let syntax is a bit different
+    (let [{:keys [user password url]} auth]  ; the let binding has the map var as the 2nd element
+      (println user password url))
+
+Records, Types, and multimethods
+================================
+
+One quirk about creating a defrecord is the funny -> that gets prepended to the defrecord type.
+For example, if you have a defrecord like this::
+
+    ; cool_project.clj
+    (ns cool-project
+      (:require [clojure.pprint :as cpp]))
+
+    (defrecord Person [name age company])
+
+    ; in the REPL
+    (require 'cool-project)
+    (def me (cool-project/->Person "Sean Toner" 42 "RedHat"))
+
+
+
 
 
