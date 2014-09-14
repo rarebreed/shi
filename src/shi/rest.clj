@@ -15,35 +15,44 @@
   (:require [clojure.tools.logging :as log])
   (:require [clojure.pprint :as pp]))
 
-
 (defrecord Request [method  ; :get, :post, etc
                     headers ; A map containing optional headers :Content-Type :Accept :User-Agent
                     url     ; the http url
-                    body    ; The body to be included
+                    body    ; Optional, The body to be included
                     ])
 
 
-(defn make-request [method headers url body token]
+(defn make-request [method url token & {:keys [headers body]
+                                        :or {headers {}}}]
   "Basic wrapper around the required elements to make an http Request
 
   Params:
     method: a keyword of the function type (eg :get :post etc)
     headers: a map which contains keyword-value of the matching header
     url: a String which is the url that the request will be sent to
-    body: a String representing the body of the http request
+    body: a String or map representing the body of the http request. can be nil
     token: the authentication token for keystone
 
   returns-> a Request object"
-  (let [b (if (= (type body) java.lang.String)
-            body
-            (cheshire.core/generate-string body))
-        h (assoc headers :X-Auth-Token token)]
-    (Request. method headers url body)))
+  (let [h (assoc headers "X-Auth-Token" token)
+        b (cond
+             (= (type body) java.lang.String)  body
+             (not body) body
+             :else (cheshire.core/generate-string body))]
+    (Request. method h url b)))
+
+
+(defn send-request [req]
+  (let [url (:url req)
+        final (if (:body req)  ; if :body is nil, remove it from the map
+                r
+                (dissoc r :body))]
+    (sak/parse-resp @(http/request final))))
 
 
 (defn -main [& args]
   ; Tests
-  (let [resp (sak/authenticate sak/cred)
+  (let [resp (sak/authenticate-v2 sak/cred)
         token (sak/get-token resp)
         catalog (sak/get-catalog resp)]
     (log/info "The response is:" resp "\n")

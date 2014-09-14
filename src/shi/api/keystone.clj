@@ -1,5 +1,7 @@
 (ns shi.api.keystone
   (:require [org.httpkit.client :as http])
+  (:require [shi.environment.config :as cfg])
+  (:require [shi.common.common :refer [sanitize-url]])
   (:require [cheshire.core])
   (:require [clojure.tools.logging :as log])
   (:require [clojure.pprint :as pp]))
@@ -7,15 +9,17 @@
 
 ; The Credentials defrecord type is the preferred way to authenticate within
 ; as it holds all the necessary information
-(defrecord Credentials [user password tenant token])
+(defrecord Credentials [user password tenant route])
 
 
 ; An example Credentials object
-(def cred (Credentials. "admin" "redhat" "demo" "http://192.168.122.141:5000/v2.0/tokens"))
-
+(def cred (Credentials. (cfg/config :admin-name)
+                        (cfg/config :admin-pass)
+                        "demo"
+                        (cfg/config :auth-url)))
 
 (defn create-authcreds [username pwd tenant]
-  "Generage the JSON string which will be embedded in the http request body
+  "Generate the JSON string which will be embedded in the http request body
 
   Params
     username: String representing the user to get credentials format
@@ -27,20 +31,6 @@
    {:auth {:tenantName tenant
            :passwordCredentials {:username username
                                  :password pwd}}}))
-
-(defn sanitize-url [auth-url end]
-  "Makes sure that the auth-url ends in end arg
-
-  Params
-    auth-url: String representing the endpoint url
-    end: A String which we will append to if necessary
-
-  returns-> the properly formatted URL"
-  (let [ending (format "/%s" end)]
-    (cond
-      (.endsWith auth-url ending) auth-url
-      (.endsWith auth-url "/") (str auth-url end)
-      :else (str auth-url ending))))
 
 
 (defn get-from-body [body & args]
@@ -74,11 +64,32 @@
   (-> (:body resp) (get-from-body "access" "serviceCatalog")))
 
 
-(defn authenticate
+(defn repr-project [name & {:keys [description enabled auth-url]
+                            :or {description ""
+                                 enabled true
+                                 auth-url (cfg/config :auth-url)}}]
+  {:auth (sanitize-url auth-url "/auth/tokens")
+   :domain {:description description
+            :enabled enabled
+            :name name}})
+
+
+(defn user
+  {:auth {:identity
+            {:methods ["password"],
+             :password
+               {:user {:id "0ca8f6",
+                       :password "secrete"}}}}})
+
+(defn resp-cb [{:keys [opts status body headers error] :as resp}]
+  resp)
+
+
+(defn authenticate-v2
   ;; uses a Credential type object
-  ([{:keys [user password tenant token]}]
-     (log/info user password tenant token)
-     (authenticate user password tenant token))
+  ([{:keys [user password tenant route]}]
+     (log/info user password tenant route)
+     (authenticate-v2 user password tenant route))
   ([user pwd tenant auth-url]
    (let [url (sanitize-url auth-url "tokens")
          auth (create-authcreds user pwd tenant)
@@ -88,3 +99,4 @@
      (parse-resp @(http/post url req))))
   ;; metadata
   {:doc "Function to retrieve token from keystone"})
+
