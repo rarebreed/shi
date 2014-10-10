@@ -6,10 +6,20 @@
   (:require [clojure.reflect :as r])
   (:require [clojure.string])
   (:require [clojure.java.io :refer [reader]])
+  (:import [java.nio.file Paths Path])
   (:import [java.io InputStreamReader BufferedReader File]))
 
 
-(defrecord Command [cmd env wdir cmbstderr? saveout? saveerr? inh outh errh])
+(defn get-cwd []
+  "Returns the string of the absolute path directory"
+  (let  [d (Paths/get "" (into-array String []))]
+    (str (.toAbsolutePath d))))
+
+
+;; A record that encapsulates the information needed to run a subprocesses
+;; cmd- sequence of string that contains the command and any arguments
+;; env- same as type from System.
+(defrecord Command [cmd env wdir ^Boolean cmbstderr? ^Boolean saveout? ^Boolean saveerr? inh outh errh])
 
 
 (defn make-command
@@ -42,7 +52,7 @@
 
 (defn make-builder [cmd]
   "Creates and sets the environment and working directory for a ProcessBuilder
-   
+
    cmd(Collection<String>): a list of strings indicating the command and any args"
   (let [pb (ProcessBuilder. (:cmd cmd))]
     (-> pb (set-environ! cmd) (set-dir! cmd))
@@ -98,14 +108,14 @@
   (reader-loop-buffered proc))
 
 
-(defn start-reader [proc]
+(defn start-reader [readfn proc]
   ;; Simple wrapper that launches a thread to get the output of a java.lang.Process
-  (.start (Thread. (partial reader-out proc reader-ready))))
+  (.start (Thread. (partial reader-out proc readfn))))
 
 
 (defn testme []
   ;; simple test
-  (let [testcmd (make-command ["python" "-u" "dummy.py"])
+  (let [testcmd (make-command ["python" "-u" "/home/stoner/dummy.py"])
         testpb (make-builder testcmd)]
     [testcmd testpb]))
 
@@ -118,3 +128,5 @@
     (println "Started the thread reader")
     (Thread/sleep 21000)
     (println "done")))
+
+

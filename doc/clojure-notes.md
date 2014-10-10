@@ -15,7 +15,7 @@ The require directive will import a *clojure* library into the current namespace
 the new var, it must be fully qualified::
 
     (require 'clojure.string)
-    (require '[clojure.java
+    (require '[clojure.java])
 
 :as allows one to alias the namespace to another name
 
@@ -143,6 +143,19 @@ For example, if you have a defrecord like this::
     (def me (cool-project/->Person "Sean Toner" 42 "RedHat"))
 
 
+Pre and post conditions
+=======================
+
+You must put this as the first thing after the arguments.  IE, this must go before the docstring
 
 
+Metadata on defn
+================
 
+Although the :pre and :post map in a defn looks like metadata, it isn't.  Remember, metadata is represented
+as::
+
+    (defn some-test [x]
+      ^{:skipped ["single-node"]}
+      ...
+      )

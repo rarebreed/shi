@@ -9,5 +9,9 @@
                  [aleph "0.3.3"]
                  [http-kit "2.1.16"]
                  [cheshire "5.3.1"]]
-  :main ^:skip-aot shi.rest
+  :dev-dependencies [[speclj "2.9.0"]]
+  :profiles {:dev {:dependencies [[speclj "2.9.0"]]}}
+  :plugins [[speclj "2.9.0"]]
+  :test-paths ["spec"]
+  ;:main ^:skip-aot shi.commander
   )
