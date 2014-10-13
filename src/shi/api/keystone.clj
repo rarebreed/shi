@@ -1,16 +1,17 @@
 (ns shi.api.keystone
   (:require [org.httpkit.client :as http])
   (:require [shi.environment.config :as cfg])
-  (:require [shi.common.common :refer [sanitize-url]])
+  (:require [shi.common.common :refer [sanitize-url not-nil?]])
   (:require [cheshire.core])
   (:require [clojure.tools.logging :as log])
   (:require [clojure.pprint :as pp]))
 
 ;================================================================================
 ; Response body functions
-; FIXME: these might need to be multimethods and resp might need to become
-; ResponseV2 and ResponseV3 defrecords
+; FIXME: these will need to be multimethods or have a defprotocol because the
+; response format changed from v2 to v3.
 ;================================================================================
+
 (defn get-from-body [body & args]
   "Retrieve an element from a nested data structure
 
@@ -52,102 +53,66 @@
             :enabled enabled
             :name name}})
 
+;==========================================================================
+; Identity protocol
+; Defines how to authorize based on keystone version
+;==========================================================================
 
 (defprotocol Identity
-  (authorize [this] "Generates token and returns response")
   (create-authcreds [this] "Creates the json request body for the token")
+  (authorize [this] "Makes a REST call to get token and returns response")
   (service-catalog [this resp]))
 
+;==========================================================================
+; Credentials methods.
+;==========================================================================
 
-(defn create-authcreds-body-v2 [opts]
-  "Generate the JSON string which will be embedded in the http request body
-
-  Args-
-    opts: Credentials object
-
-  returns-> a JSON formatted string"
-  (cheshire.core/generate-string
-   {:auth {:tenantName (:tenant opts)
-           :passwordCredentials {:username (:user opts)
-                                 :password (:password opts)}}}))
-
-
-(defn authenticate-v2 [{:keys [user password tenant route]
-                        :as cred}]
-  "REST call to /v2/tokens
-
-  args:
-    Either a Credentials object, or the keys listed above
-
-  returns-> A map representing the JSON response
-  "
-  (let [url (sanitize-url route "tokens")
-        auth (create-authcreds-body-v2 user password tenant)
-        req {:headers {"Content-Type" "application/json", "Accept" "application/json"}
-             :body auth}]
-    (log/info user password tenant route)
-    (log/debugf "url:%s\nauth:%s\nreq:%s" url auth (str req))
-    (parse-resp @(http/post url req)))))
-
-
-; The Credentials defrecord type is the preferred way to authenticate
-; as it holds all the necessary information
 (defrecord Credentials [user password tenant route]
   Identity
-  (authorize [this] (authenticate-v2 this))
-  (create-authcreds [this] ())
+  (create-authcreds [this]
+    (cheshire.core/generate-string  {:auth {:tenantName (:tenant this)
+                                     :passwordCredentials {:username (:user this)
+                                     :password (:password this)}}}))
+  (authorize [this]
+    (let [url (sanitize-url route "tokens")
+          auth (create-authcreds this)
+          req {:headers {"Content-Type" "application/json", "Accept" "application/json"}
+               :body auth}]
+      (log/debugf "url:%s\nauth:%s\nreq:%s" url auth (str req))
+      (parse-resp @(http/post url req))))
   (service-catalog [this resp] (get-catalog resp)))
 
 
 ; =======================================================================
-; Keystone V3 functions
+; CredentialsV3 functions
 ; ========================================================================
 
-; hierarchy is a pseudo grammar rule for the JSON structure
-(def hierarchy  {:auth
-                  {:user [:domain :name :password :id]}
-                  {:identity [:methods :password :token]}
-                  {:methods ["password" "token"]}
-                  {:password [:user]}
-                  {:domain [:id :name]}
-                  {:scope [:project :domain]}
-                  {:project [:id]}})
-
-
-(defn create-authcreds-body-v3 [opts]
-  "Creates the map which will become the http request body for v3
-
-  args:
-    - opts: A CredentialsV3 object
-  "
-  {:pre [(= (class opts) CredentialsV3)]}
-  (let [token (:token (:extra opts))
-        scope (:scope (:extra opts))
-        identity- {:identity
-                   {:methods [authmethod]
-                    :password user}}
-        ident (if (not-nil? token)
-                (assoc identity- :token token)
-                identity-)
-        id-scope (if (not-nil? scope)
-                   (assoc ident :scope scope)
-                   identity-)
-        auth {:auth id-scope}]
-    auth))
-
-
-(defn authenticate-v3
-  ([{:keys [user secret authmethod domain auth-url extra]
-     :as opt}]
-     (log/info "Args passed in: " user secret authmethod domain auth-url extra)
-     (authenticate-v3 user secret authmethod domain auth-url extra))
-  ([user sec method domain url ext]
-    (let [url (sanitize-url auth-url "auth/tokens")
-          auth (create-authcreds user pwd tenant)
+(defrecord CredentialsV3 [user secret authmethod domain auth-url extra]
+  Identity
+  (create-authcreds [this]
+    {:pre [(= (class this) CredentialsV3)]}
+    (let [token (:token (:extra this))
+          scope (:scope (:extra this))
+          identity- {:identity
+                     {:methods [(:authmethod this)]
+                      :password (:user this)}}
+          ident (if (not-nil? token)
+                  (assoc identity- :token token)
+                  identity-)
+          id-scope (if (not-nil? scope)
+                     (assoc ident :scope scope)
+                     identity-)]
+      (cheshire.core/generate-string {:auth id-scope})))
+  (authorize [this]
+    (log/info "Args passed in: " this)
+    (let [url (sanitize-url (:auth-url this) "auth/tokens")
+          auth (create-authcreds this)
           req {:headers {"Content-Type" "application/json", "Accept" "application/json"}
                :body auth}]
-      (log/debugf "url:%s\nauth:%s\nreq:%s" url auth (str req))
-      (parse-resp @(http/post url req)))))
+      (log/infof "url: %s\nauth: %s\nreq: %s" url auth req)
+      ;(parse-resp @(http/post url req))))
+      @(http/post url req)))
+  (service-catalog [this resp] (get-catalog resp)))
 
 
 (defn make-creds-v3 [& {:keys [username userid authmethod secret domain auth-url]
@@ -165,7 +130,7 @@
   (let [authtype (keyword authmethod)
         user  (cond
                 (and (nil? domain) (nil? userid)) (do
-                                                    (log/warning "Must use domain object if not using userid")
+                                                    (log/error "Must use domain object if not using userid")
                                                     nil)
                 (not-nil? username) {:user {:domain domain
                                             :name username
@@ -175,9 +140,12 @@
         extra (dissoc username userid authmethod secret domain auth-url)]
     (->CredentialsV3 user secret authmethod domain auth-url extra)))
 
-
-(defrecord CredentialsV3 [user secret authmethod domain auth-url extra]
-  Identity
-  (authorize [this] (authenticate-v3 this))
-  (create-authcreds [this] (create-authcreds-body-v3 this))
-  (service-catalog [this resp] (get-catalog-v3 resp)))
+; hierarchy is a pseudo grammar rule for the JSON structure
+(def hierarchy  {:auth
+                  {:user [:domain :name :password :id]}
+                  {:identity [:methods :password :token]}
+                  {:methods ["password" "token"]}
+                  {:password [:user]}
+                  {:domain [:id :name]}
+                  {:scope [:project :domain]}
+                  {:project [:id]}})

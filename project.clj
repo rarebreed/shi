@@ -7,7 +7,7 @@
   :dependencies [[org.clojure/clojure "1.6.0"]
                  [org.clojure/tools.logging "0.3.0"]
                  [aleph "0.3.3"]
-                 [http-kit "2.1.16"]
+                 [http-kit "2.1.18"]
                  [cheshire "5.3.1"]]
   :dev-dependencies [[speclj "2.9.0"]]
   :profiles {:dev {:dependencies [[speclj "2.9.0"]]}}
