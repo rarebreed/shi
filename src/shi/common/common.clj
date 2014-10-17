@@ -17,3 +17,9 @@
     url))
 
 (def not-nil? (complement nil?))
+
+
+(defn in?
+  "true if seq contains elm"
+  [seq elm]
+  (some #(= elm %) seq))

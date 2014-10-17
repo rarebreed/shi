@@ -54,8 +54,35 @@
   (-> (:body resp) (get-from-body "token" "catalog")))
 
 
-(defn get-service [name catalog]
-  )
+(defn get-service [names catalog]
+  "Gets the service endpoints maps from the catalog from a sequence of service names
+
+   Args:
+     -names: sequence of service names (eg ['nova', 'glance'])
+     -catalog: the map returned from get-catalog
+   Returns a lazy sequence of a map of the service"
+  (for [svc catalog :when (in? names (svc "name"))] svc))
+
+
+(defn get-endpoints [svc]
+  (svc "endpoints"))
+
+
+(defn convert-endpoints [svc]
+  "The way OpenStack keystone lays out the service endpoints is not user friendly. This function converts
+  the endpoints from a list to a map, where the keys are 'public', 'internal' and 'admin'
+
+  For example, to obtain the admin url you now only need to do this:
+
+  (get-in svc ['endpoints' 'admin' 'url])"
+  (let [convert (fn [m ept]
+                  (if (nil? m)
+                    (let [m {(ept "interface") ept}]
+                      m)
+                    (assoc m (ept "interface") ept)))
+        epts (get-endpoints svc)]
+    (assoc svc "endpoints" (reduce convert {} epts))))
+
 
 (defn repr-project [name & {:keys [description enabled auth-url]
                             :as opts

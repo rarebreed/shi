@@ -9,5 +9,11 @@
 
 (defn get-versions [{:keys [url]}]
   "gets the glance api versions"
-  (let [options {:headers {"Content-Type" "application/json", "Accept" "application/json"}]
+  (let [options {:headers {"Content-Type" "application/json", "Accept" "application/json"}}]
     @(http/get url options)))
+
+
+(defn image-create [])
+
+
+(defn image-list [])
