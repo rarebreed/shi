@@ -5,9 +5,3 @@
   (:require [cheshire.core])
   (:require [clojure.tools.logging :as log])
   (:require [clojure.pprint :as pp]))
-
-
-(defn get-versions [{:keys [url]}]
-  "gets the glance api versions"
-  (let [options {:headers {"Content-Type" "application/json", "Accept" "application/json"}]
-    @(http/get url options)))

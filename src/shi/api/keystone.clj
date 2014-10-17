@@ -8,8 +8,6 @@
 
 ;================================================================================
 ; Response body functions
-; FIXME: these will need to be multimethods or have a defprotocol because the
-; response format changed from v2 to v3.
 ;================================================================================
 
 (defn get-from-body [body & args]
@@ -33,15 +31,31 @@
   (assoc resp :body (get-body resp)))
 
 
-(defn get-token [resp]
-  "Get the token id from the body of the response"
+(defmulti get-token
+  "Gets the authorization token from the REST response"
+  :version)
+
+(defmethod get-token "v2.0" [resp]
   (get-from-body (:body resp) "access" "token" "id"))
 
 
-(defn get-catalog [resp]
+(defmethod get-token "v3" [resp]
+  (get-from-body resp :headers :x-subject-token))
+
+
+(defmulti get-catalog
   "Gets the service catalog from within the body"
+  :version )
+
+(defmethod get-catalog  "v2.0" [resp]
   (-> (:body resp) (get-from-body "access" "serviceCatalog")))
 
+(defmethod get-catalog  "v3" [resp]
+  (-> (:body resp) (get-from-body "token" "catalog")))
+
+
+(defn get-service [name catalog]
+  )
 
 (defn repr-project [name & {:keys [description enabled auth-url]
                             :as opts
@@ -64,7 +78,7 @@
   (service-catalog [this resp]))
 
 ;==========================================================================
-; Credentials methods.
+; Credentials methods that implement Identity protocol
 ;==========================================================================
 
 (defrecord Credentials [user password tenant route]
@@ -79,12 +93,12 @@
           req {:headers {"Content-Type" "application/json", "Accept" "application/json"}
                :body auth}]
       (log/debugf "url:%s\nauth:%s\nreq:%s" url auth (str req))
-      (parse-resp @(http/post url req))))
+      (assoc @(http/post url req) :version "v2.0")))
   (service-catalog [this resp] (get-catalog resp)))
 
 
 ; =======================================================================
-; CredentialsV3 functions
+; CredentialsV3
 ; ========================================================================
 
 (defrecord CredentialsV3 [user secret authmethod domain auth-url extra]
@@ -111,7 +125,7 @@
                :body auth}]
       (log/infof "url: %s\nauth: %s\nreq: %s" url auth req)
       ;(parse-resp @(http/post url req))))
-      @(http/post url req)))
+      (assoc @(http/post url req) :version "v3")))
   (service-catalog [this resp] (get-catalog resp)))
 
 
@@ -139,6 +153,7 @@
                                           authtype secret}})
         extra (dissoc username userid authmethod secret domain auth-url)]
     (->CredentialsV3 user secret authmethod domain auth-url extra)))
+
 
 ; hierarchy is a pseudo grammar rule for the JSON structure
 (def hierarchy  {:auth
