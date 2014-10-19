@@ -1,7 +1,8 @@
 (ns shi.api.keystone
   (:require [org.httpkit.client :as http])
   (:require [shi.environment.config :as cfg])
-  (:require [shi.common.common :refer [sanitize-url not-nil?]])
+  (:require [shi.common.common :refer [sanitize-url not-nil? in?]])
+  (:require [shi.rest :as sr])
   (:require [cheshire.core])
   (:require [clojure.tools.logging :as log])
   (:require [clojure.pprint :as pp]))
@@ -47,8 +48,10 @@
   "Gets the service catalog from within the body"
   :version )
 
+
 (defmethod get-catalog  "v2.0" [resp]
   (-> (:body resp) (get-from-body "access" "serviceCatalog")))
+
 
 (defmethod get-catalog  "v3" [resp]
   (-> (:body resp) (get-from-body "token" "catalog")))
@@ -82,6 +85,43 @@
                     (assoc m (ept "interface") ept)))
         epts (get-endpoints svc)]
     (assoc svc "endpoints" (reduce convert {} epts))))
+
+
+(defn get-url [svc etype]
+  (get-in svc ["endpoints" etype "url"]))
+
+
+(defn get-rest-basics [resp svc-name]
+  (let [catalog (get-catalog resp)
+        orig-svc (first (get-service [svc-name] catalog))
+        svc (convert-endpoints orig-svc)
+        url (get-url svc "public")
+        token (get-token resp)]
+    {:svc svc :url url :token token}))
+
+
+(defn make-rest [& {:keys [resp svc-name url-end method body query-params]}]
+  "Basic wrapper around the required elements to make an http Request
+
+  Keywords:
+    method: a keyword of the function type (eg :get :post etc)
+    resp: the response object returned from (authorize)
+    url-end: a String which will be concatened to the url endpoint
+    svc-name: the name of the server (eg 'nova' or 'glance')
+    body: (optional) a map containing the body of the request
+    query-params: (optional) a map of keyword|value pairs that the rest call may need
+
+  returns-> a request map that can be passed to (http/request)"
+  (let [{:keys [url token]} (get-rest-basics resp svc-name)
+        req {:url (sanitize-url url url-end)
+             :headers {"Content-Type" "application/json",
+                       "Accept" "application/json"
+                       "X-Auth-Token" token}
+             :method method}
+        req-f (if query-params
+                (assoc req :query-params (first (query-params)))
+                req)]
+    req-f))
 
 
 (defn repr-project [name & {:keys [description enabled auth-url]
@@ -151,7 +191,6 @@
           req {:headers {"Content-Type" "application/json", "Accept" "application/json"}
                :body auth}]
       (log/infof "url: %s\nauth: %s\nreq: %s" url auth req)
-      ;(parse-resp @(http/post url req))))
       (assoc @(http/post url req) :version "v3")))
   (service-catalog [this resp] (get-catalog resp)))
 
