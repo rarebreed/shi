@@ -11,14 +11,28 @@
                              :auth-url (cfg/config :auth-url)
                              :authmethod "password"
                              :secret (cfg/config :user-pass)))
-(def resp (ks/authorize cred3))
-(def auth (ks/parse-resp resp))
+(def auth (ks/authorize cred3))
+(def catalog (ks/get-catalog auth))
 
 (let [catalog (ks/get-catalog auth)
-      token (ks/get-token auth)
-      images (gl/image-list auth)]
+      images (gl/image-list auth)
+      keystone (ks/get-service [:keystone] catalog)
+      {:keys [url token]} (ks/get-rest-basics auth :keystone)
+      ]
   (println "Response: " auth)
+  (println "================================")
   (println "Catalog: " catalog)
+  (println "================================")
   (println "Token: " token)
-  (print "Images: ")
-  (cpp/pprint images))
+  (println "================================")
+  (println "Keystone: " (first keystone))
+  (println "================================")
+  (cpp/pprint images)
+  (println "================================")
+  (println "Url:" url))
+
+(let [keystone (ks/!get-service-info auth :keystone)
+      token (:token keystone)
+      v2url (:url keystone)
+      url (clojure.string/replace v2url #"v2.0" "v3")]
+  {:url url :token token})

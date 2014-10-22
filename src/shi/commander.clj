@@ -120,11 +120,17 @@
     [testcmd testpb]))
 
 
+(defn launch [pb rdrfn]
+  (let [proc (.start pb)
+        thr (sc/start-reader rdrfn proc)]
+    [proc thr]))
+
+
 (defn -main []
   ;; Test
   (let [[c pb] (testme)
         proc (.start pb)
-        thr (start-reader proc)]
+        thr (start-reader reader-loop-unbuffered proc)]
     (println "Started the thread reader")
     (Thread/sleep 21000)
     (println "done")))

@@ -11,7 +11,7 @@
 ; Response body functions
 ;================================================================================
 
-(defn get-from-body [body & args]
+(defn get-from-body
   "Retrieve an element from a nested data structure
 
   Params
@@ -19,16 +19,19 @@
     args: a sequence of args which is used to drill down into the nested map
 
   returns-> The sub-map obtained from get-in"
+  [body & args]
   (get-in body args))
 
 
-(defn get-body [resp]
+(defn get-body
   "Take the :body from our response and convert to a map"
+  [resp]
   (cheshire.core/parse-string (:body resp)))
 
 
-(defn parse-resp [resp]
+(defn parse-resp
   "Returns a map where :body is a map instead of a string"
+  [resp]
   (assoc resp :body (get-body resp)))
 
 
@@ -57,27 +60,43 @@
   (-> (:body resp) (get-from-body "token" "catalog")))
 
 
-(defn get-service [names catalog]
+(defmulti set-catalog
+          "Gets the service catalog from within the body"
+          :version )
+
+
+(defmethod set-catalog  "v2.0" [resp catalog]
+  (assoc-in resp [:body "access" "serviceCatalog"] catalog))
+
+
+(defmethod set-catalog  "v3" [resp catalog]
+  (assoc-in resp [:body "token" "catalog"] catalog))
+
+
+(defn get-service
   "Gets the service endpoints maps from the catalog from a sequence of service names
 
    Args:
      -names: sequence of service names (eg ['nova', 'glance'])
      -catalog: the map returned from get-catalog
    Returns a lazy sequence of a map of the service"
-  (for [svc catalog :when (in? names (svc "name"))] svc))
+  [names catalog]
+  {:post (not-empty %)}
+  (for [name (keys catalog) :when (in? names name)] (catalog name)))
 
 
 (defn get-endpoints [svc]
   (svc "endpoints"))
 
 
-(defn convert-endpoints [svc]
+(defn convert-endpoints
   "The way OpenStack keystone lays out the service endpoints is not user friendly. This function converts
   the endpoints from a list to a map, where the keys are 'public', 'internal' and 'admin'
 
   For example, to obtain the admin url you now only need to do this:
 
   (get-in svc ['endpoints' 'admin' 'url])"
+  [svc]
   (let [convert (fn [m ept]
                   (if (nil? m)
                     (let [m {(ept "interface") ept}]
@@ -87,40 +106,76 @@
     (assoc svc "endpoints" (reduce convert {} epts))))
 
 
+(defn convert-all [auth]
+  (let [catalog (get-catalog auth)
+        converted (vec (map convert-endpoints catalog))
+        trans (fn [m svc]
+                (let [name (svc "name")
+                      kname (keyword name)]
+                  (assoc m kname (dissoc svc name))))
+        final (reduce trans {} converted)]
+    (set-catalog auth final)))
+
+
 (defn get-url [svc etype]
   (get-in svc ["endpoints" etype "url"]))
 
 
-(defn get-rest-basics [resp svc-name]
-  (let [catalog (get-catalog resp)
-        orig-svc (first (get-service [svc-name] catalog))
-        svc (convert-endpoints orig-svc)
-        url (get-url svc "public")
-        token (get-token resp)]
-    {:svc svc :url url :token token}))
+(defn !get-service-info [auth name]
+  (let [catalog (get-catalog auth)
+        svc (first (get-service [name] catalog))]
+    (if (nil? svc)
+      (throw (Exception. "Could not find service"))
+      (let [url (get-url svc "public")
+            token (get-token auth)]
+        {:svc svc :url url :token token}))))
 
 
-(defn make-rest [& {:keys [resp svc-name url-end method body query-params]}]
+(defmulti get-rest-basics
+  "Kind of a hack, but since keystone-v3 isn't in the catalog of the response body, this is one way
+  to separate the logic of how to get the needed rest information"
+  (fn [auth name]
+     (= name :keystone-v3)))
+
+
+(defmethod get-rest-basics false [auth ^String svc-name]
+  (!get-service-info auth svc-name))
+
+
+(defmethod get-rest-basics true [auth svc-name]
+  (let [keystone (!get-service-info auth :keystone)
+        token (:token keystone)
+        v2url (:url keystone)
+        url (clojure.string/replace v2url #"v2.0" "v3")]
+    (log/info "In get-rest-basics")
+    {:url url :token token}))
+
+
+(defn make-rest
   "Basic wrapper around the required elements to make an http Request
 
   Keywords:
     method: a keyword of the function type (eg :get :post etc)
-    resp: the response object returned from (authorize)
+    auth: the response object returned from (authorize)
     url-end: a String which will be concatened to the url endpoint
     svc-name: the name of the server (eg 'nova' or 'glance')
     body: (optional) a map containing the body of the request
     query-params: (optional) a map of keyword|value pairs that the rest call may need
 
   returns-> a request map that can be passed to (http/request)"
-  (let [{:keys [url token]} (get-rest-basics resp svc-name)
+  [& {:keys [auth svc-name url-end method body query-params]}]
+  (let [{:keys [url token]} (get-rest-basics auth svc-name)
         req {:url (sanitize-url url url-end)
              :headers {"Content-Type" "application/json",
                        "Accept" "application/json"
                        "X-Auth-Token" token}
              :method method}
-        req-f (if query-params
+        req-q (if query-params
                 (assoc req :query-params (first (query-params)))
-                req)]
+                req)
+        req-f (if body
+                (assoc req-q :body body)
+                req-q)]
     req-f))
 
 
@@ -154,19 +209,36 @@
     (cheshire.core/generate-string  {:auth {:tenantName (:tenant this)
                                      :passwordCredentials {:username (:user this)
                                      :password (:password this)}}}))
+
   (authorize [this]
     (let [url (sanitize-url route "tokens")
           auth (create-authcreds this)
           req {:headers {"Content-Type" "application/json", "Accept" "application/json"}
                :body auth}]
       (log/debugf "url:%s\nauth:%s\nreq:%s" url auth (str req))
-      (assoc @(http/post url req) :version "v2.0")))
+      (-> @(http/post url req) (assoc :version "v2.0") (parse-resp) (convert-all))))
+
   (service-catalog [this resp] (get-catalog resp)))
 
 
 ; =======================================================================
 ; CredentialsV3
 ; ========================================================================
+
+(defn v2-to-v3 [endpt]
+  (vec (for [x endpt]
+    (let [url (x "url")]
+      (assoc x "url" (clojure.string/replace url #"v2.0" "v3"))))))
+
+(defn add-keystone-v3 [auth]
+  (let [catalog (get-catalog auth)
+        keystone (get-service ["keystone"] catalog)
+        ept (get-endpoints keystone)
+        keystone-v3 {"endpoints" ept
+                     "name" "keystone-v3"}]
+
+    )
+  )
 
 (defrecord CredentialsV3 [user secret authmethod domain auth-url extra]
   Identity
@@ -184,6 +256,7 @@
                      (assoc ident :scope scope)
                      identity-)]
       (cheshire.core/generate-string {:auth id-scope})))
+
   (authorize [this]
     (log/info "Args passed in: " this)
     (let [url (sanitize-url (:auth-url this) "auth/tokens")
@@ -191,13 +264,12 @@
           req {:headers {"Content-Type" "application/json", "Accept" "application/json"}
                :body auth}]
       (log/infof "url: %s\nauth: %s\nreq: %s" url auth req)
-      (assoc @(http/post url req) :version "v3")))
+      (->  @(http/post url req) (assoc :version "v3") (parse-resp ) (convert-all))))
+
   (service-catalog [this resp] (get-catalog resp)))
 
 
-(defn make-creds-v3 [& {:keys [username userid authmethod secret domain auth-url]
-                        :as opts
-                        :or {authmethod "password"}}]
+(defn make-creds-v3
   "Returns a CredentialsV3 defrecord object which can be used for authentication to keystone V3
 
   KeyArgs:
@@ -207,6 +279,9 @@
     - domain: a map which can contain the keys :id or :name (corresponding to the domain id or name)
     - auth-url: a string representing the authenticaltion url (eg http://192.168.122.244:5000/v3)
   "
+  [& {:keys [username userid authmethod secret domain auth-url]
+      :as opts
+      :or {authmethod "password"}}]
   (let [authtype (keyword authmethod)
         user  (cond
                 (and (nil? domain) (nil? userid)) (do
@@ -220,6 +295,76 @@
         extra (dissoc username userid authmethod secret domain auth-url)]
     (->CredentialsV3 user secret authmethod domain auth-url extra)))
 
+
+;============================================================================
+; service catalog
+;============================================================================
+
+(defn list-services [auth svc & {:keys [query-params]}]
+  "It appears that keystone v3 doesn't show up in the service catalog returned
+  from authorization, so we use this function to get a list of services.  Since
+  it was returned in the authorization response, we cant use that returned map
+  to get our URL, so we have to explicitly know it for now"
+  (let [req (make-rest :auth auth :svc-name svc :url-end "services" :method :get
+                       :query-params query-params)]
+    (sr/send-request req)))
+
+
+(defn get-service-url [services]
+  "return a sequence of vectors [servicename url]
+
+  Args:
+    - services: the map returned in the :body from list-services"
+  (for [svc (services "services")]
+    (let [name (svc "name")
+          url (get-in svc ["links" "self"])]
+       [name url])))
+
+
+(defn endpoints-list [auth svc & {:keys [query-params]}]
+  "REST call to retrieve service endpoints"
+  (let [req (make-rest :auth auth :svc-name svc :url-end "endpoints" :method :get
+                       :query-params query-params)]
+    (sr/send-request req)))
+
+
+(defn show-service [auth services]
+  "REST call to retrieve detailed information for all the services
+
+  (Note: this doesn't seem to provide any more info than what service-list does)"
+  (for [[name url] (get-service-url services)]
+    (let [token (get-token auth)
+          req {:url url
+               :headers {"Content-Type" "application/json",
+                         "Accept" "application/json"
+                         "X-Auth-Token" token}
+               :method :get}]
+      {:name name :result (:body (sr/send-request req))})))
+
+
+;============================================================================
+; Domain functions
+;============================================================================
+
+(defn domain-list [auth svc & {:keys [query-params]}]
+  (let [req (make-rest :resp auth :svc-name svc :url-end "domains" :method :get
+                       :query-params query-params)]
+    (sr/send-request req)))
+
+
+(defn make-project [auth & {:keys [^String description
+                                   ^String domain_id
+                                   ^Boolean enabled
+                                   ^String name]}]
+  "Creates a project
+
+  KeyArgs:
+    - description: a description of the project
+    - domain_id: The uuid of the domain this project belongs to
+    -
+  "
+
+  )
 
 ; hierarchy is a pseudo grammar rule for the JSON structure
 (def hierarchy  {:auth

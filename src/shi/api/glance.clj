@@ -3,6 +3,7 @@
   (:require [shi.environment.config :as cfg])
   (:require [shi.common.common :refer [sanitize-url not-nil?]])
   (:require [shi.api.keystone :as ks])
+  (:require [shi.rest :as sr])
   (:require [cheshire.core])
   (:require [clojure.tools.logging :as log])
   (:require [clojure.pprint :as pp]))
@@ -30,17 +31,10 @@
 (defn image-create [])
 
 
-(defn image-list [auth-resp]
-  (let [{:keys [url token]} (ks/get-rest-basics auth-resp "glance")
-        req {:url (sanitize-url url "/v2/images")
-             :headers {"Content-Type" "application/json",
-                       "Accept" "application/json"
-                       "X-Auth-Token" token}
-             :method :get}
-        resp @(http/request req)
-        body (cheshire.core/parse-string (resp :body))
-        images (body "images")]
-    images))
+(defn image-list [auth & {:keys [query-params]}]
+  (let [req (ks/make-rest :auth auth :svc-name :glance :url-end "v2/images" :method :get
+                          :query-params query-params)]
+    (sr/send-request req)))
 
 
 (defn get-image-id [name images]
