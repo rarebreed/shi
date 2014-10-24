@@ -1,6 +1,6 @@
 (ns shi.test_commander
   (:require [clojure.java.io :as io])
-  (:require [speclj.core :refer :all])
+  (:use clojure.test)
   (:require [shi.commander :as sc]))
 
 (def dummy
@@ -22,21 +22,21 @@ sys.exit(0)
         testpb (sc/make-builder testcmd)]
     [testcmd testpb]))
 
-(describe "shi.commander tests"
-  (before-all
-    (spit "dummy.py" dummy))
+(defn dummy-fixture [f]
+  (spit "dummy.py" dummy)
+  f
+  (io/delete-file "dummy.py"))
 
-  (after-all
-    (io/delete-file "dummy.py"))
+(use-fixtures :each dummy-fixture)
 
-  (it "Runs a python dummy test that returns 0 on success"
-    (should=  0
+(deftest shi-commander-tests
+  (testing "Runs a python dummy test that returns 0 on success"
+    (is  (=  0
       (let [[c pb] (testme)
              proc (.start pb)
              thr (sc/start-reader sc/reader-loop-unbuffered proc)]
         (println "Started the thread reader")
         (Thread/sleep 11000)
         (println "done")
-        (.exitValue proc)))))
+        (.exitValue proc))))))
 
-(run-specs)

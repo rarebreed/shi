@@ -122,7 +122,7 @@
 
 (defn launch [pb rdrfn]
   (let [proc (.start pb)
-        thr (sc/start-reader rdrfn proc)]
+        thr (start-reader rdrfn proc)]
     [proc thr]))
 
 
@@ -132,7 +132,7 @@
         proc (.start pb)
         thr (start-reader reader-loop-unbuffered proc)]
     (println "Started the thread reader")
-    (Thread/sleep 21000)
+    (Thread/sleep 11000)
     (println "done")))
 
 

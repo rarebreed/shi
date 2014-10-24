@@ -85,11 +85,11 @@
   (for [name (keys catalog) :when (in? names name)] (catalog name)))
 
 
-(defn get-endpoints [svc]
+(defn- get-endpoints [svc]
   (svc "endpoints"))
 
 
-(defn convert-endpoints
+(defn- convert-endpoints
   "The way OpenStack keystone lays out the service endpoints is not user friendly. This function converts
   the endpoints from a list to a map, where the keys are 'public', 'internal' and 'admin'
 
@@ -106,7 +106,7 @@
     (assoc svc "endpoints" (reduce convert {} epts))))
 
 
-(defn convert-all [auth]
+(defn- convert-all [auth]
   (let [catalog (get-catalog auth)
         converted (vec (map convert-endpoints catalog))
         trans (fn [m svc]
@@ -121,29 +121,30 @@
   (get-in svc ["endpoints" etype "url"]))
 
 
-(defn !get-service-info [auth name]
+(defn- get-service-info [auth name]
   (let [catalog (get-catalog auth)
         svc (first (get-service [name] catalog))]
     (if (nil? svc)
       (throw (Exception. "Could not find service"))
       (let [url (get-url svc "public")
             token (get-token auth)]
-        {:svc svc :url url :token token}))))
+        {:url url :token token}))))
 
 
 (defmulti get-rest-basics
   "Kind of a hack, but since keystone-v3 isn't in the catalog of the response body, this is one way
-  to separate the logic of how to get the needed rest information"
+  to separate the logic of how to get the needed rest information.  This is simply a helper function
+  thaat gives us the url and token to make a REST call"
   (fn [auth name]
      (= name :keystone-v3)))
 
 
 (defmethod get-rest-basics false [auth ^String svc-name]
-  (!get-service-info auth svc-name))
+  (get-service-info auth svc-name))
 
 
 (defmethod get-rest-basics true [auth svc-name]
-  (let [keystone (!get-service-info auth :keystone)
+  (let [keystone (get-service-info auth :keystone)
         token (:token keystone)
         v2url (:url keystone)
         url (clojure.string/replace v2url #"v2.0" "v3")]
@@ -225,21 +226,6 @@
 ; CredentialsV3
 ; ========================================================================
 
-(defn v2-to-v3 [endpt]
-  (vec (for [x endpt]
-    (let [url (x "url")]
-      (assoc x "url" (clojure.string/replace url #"v2.0" "v3"))))))
-
-(defn add-keystone-v3 [auth]
-  (let [catalog (get-catalog auth)
-        keystone (get-service ["keystone"] catalog)
-        ept (get-endpoints keystone)
-        keystone-v3 {"endpoints" ept
-                     "name" "keystone-v3"}]
-
-    )
-  )
-
 (defrecord CredentialsV3 [user secret authmethod domain auth-url extra]
   Identity
   (create-authcreds [this]
@@ -300,38 +286,44 @@
 ; service catalog
 ;============================================================================
 
-(defn list-services [auth svc & {:keys [query-params]}]
+(defn list-services
   "It appears that keystone v3 doesn't show up in the service catalog returned
   from authorization, so we use this function to get a list of services.  Since
   it was returned in the authorization response, we cant use that returned map
   to get our URL, so we have to explicitly know it for now"
+  [auth svc & {:keys [query-params]}]
   (let [req (make-rest :auth auth :svc-name svc :url-end "services" :method :get
                        :query-params query-params)]
     (sr/send-request req)))
 
 
-(defn get-service-url [services]
+(defn get-service-url
   "return a sequence of vectors [servicename url]
 
   Args:
-    - services: the map returned in the :body from list-services"
+    - services: the map returned in the :body from list-services
+
+  returns-> lazy sequence of service-name,service-url vectors"
+  [services]
   (for [svc (services "services")]
     (let [name (svc "name")
           url (get-in svc ["links" "self"])]
        [name url])))
 
 
-(defn endpoints-list [auth svc & {:keys [query-params]}]
+(defn endpoints-list
   "REST call to retrieve service endpoints"
+  [auth svc & {:keys [query-params]}]
   (let [req (make-rest :auth auth :svc-name svc :url-end "endpoints" :method :get
                        :query-params query-params)]
     (sr/send-request req)))
 
 
-(defn show-service [auth services]
+(defn show-service
   "REST call to retrieve detailed information for all the services
 
   (Note: this doesn't seem to provide any more info than what service-list does)"
+  [auth services]
   (for [[name url] (get-service-url services)]
     (let [token (get-token auth)
           req {:url url
@@ -347,24 +339,45 @@
 ;============================================================================
 
 (defn domain-list [auth svc & {:keys [query-params]}]
-  (let [req (make-rest :resp auth :svc-name svc :url-end "domains" :method :get
+  (let [req (make-rest :auth auth :svc-name svc :url-end "domains" :method :get
                        :query-params query-params)]
     (sr/send-request req)))
 
 
-(defn make-project [auth & {:keys [^String description
-                                   ^String domain_id
-                                   ^Boolean enabled
-                                   ^String name]}]
+;============================================================================
+; projects related functions
+;============================================================================
+
+(defn projects-list [auth svc & {:keys [query-params]}]
+  (let [req (make-rest :auth auth :svc-name svc :url-end "projects" :method :get
+                       :query-params query-params)]
+    (sr/send-request req)))
+
+(defrecord ProjectV3 [^String description
+                      ^String domain_id
+                      ^String enabled
+                      ^String name])
+(defn make-project
   "Creates a project
 
   KeyArgs:
     - description: a description of the project
-    - domain_id: The uuid of the domain this project belongs to
-    -
+    - domain_id: The name of domain 'Default' by default
+    - enabled: whether the project is enabled or not (true by default)
+    - name: The name of the project
   "
+  [& {:keys [description domain_id enabled name]
+      :or {description "" domain_id "Default" enabled true}}]
+  {:pre [(not-nil? name)]}
+  (ProjectV3. description domain_id enabled name))
 
-  )
+
+(defn project-create [auth svc project]
+  (let [body (cheshire.core/generate-string {:project project})
+        req (make-rest :auth auth :svc-name svc :url-end "projects" :method :post
+                       :body body)]
+      (sr/send-request req)))
+
 
 ; hierarchy is a pseudo grammar rule for the JSON structure
 (def hierarchy  {:auth
@@ -375,3 +388,52 @@
                   {:domain [:id :name]}
                   {:scope [:project :domain]}
                   {:project [:id]}})
+
+
+;=============================================================================
+; User related functions
+;=============================================================================
+
+(defn user-list
+  "Isses REST call to retrieve users"
+  [auth svc & {:keys [query-params]}]
+  (let [req (make-rest :auth auth :svc-name svc :url-end "users" :method :get
+                       :query-params query-params)]
+    (sr/send-request req)))
+
+
+(defn find-user-by-name
+  "Takes the list of users (as returned from users-list) and returns matches by name
+  Args:
+    - user-list: the :body returned from users-list"
+  [user-list])
+
+
+(defrecord UserV3 [^String default_project_id
+                   ^String description
+                   ^String domain_id
+                   ^String email
+                   ^String enabled
+                   ^String name
+                   ^String password])
+(defn make-user-v3
+  "Creates a UserV3 type which can be passed to user-create.  It must contain at a minimum
+  the default_project_id and name"
+  [& {:keys [default_project_id name description domain_id enabled password email]
+      :or {description "" domain_id "Default" enabled true password "" email ""}}]
+  {:pre [(not-nil? default_project_id) (not-nil? name)]}
+  (->UserV3 default_project_id description domain_id email enabled name password))
+
+
+(defn user-create
+  "Creates a user
+
+  Args:
+    - auth: The authentication response map
+    - svc: one of :keystone or :keystone-v3
+    - user: a UserV3 object"
+  [auth svc ^shi.api.keystone.UserV3 user]
+  (let [body (cheshire.core/generate-string {:user user})
+        req (make-rest :auth auth :svc-name svc :url-end "users" :method :post
+                       :body body)]
+    (sr/send-request req)))

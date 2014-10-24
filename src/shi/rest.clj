@@ -22,6 +22,7 @@
 
 (defn send-request [req]
   (let [resp @(http/request req)
-        body (cheshire.core/parse-string (resp :body))]
-    (assoc resp :body body)))
+        body (cheshire.core/parse-string (resp :body))
+        result (assoc resp :body body)]
+    {:resp result :body body :status (resp :status)}))
 
