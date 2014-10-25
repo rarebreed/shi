@@ -148,7 +148,6 @@
         token (:token keystone)
         v2url (:url keystone)
         url (clojure.string/replace v2url #"v2.0" "v3")]
-    (log/info "In get-rest-basics")
     {:url url :token token}))
 
 
@@ -179,16 +178,6 @@
                 req-q)]
     req-f))
 
-
-(defn repr-project [name & {:keys [description enabled auth-url]
-                            :as opts
-                            :or {description ""
-                                 enabled true
-                                 auth-url (cfg/config :auth-url)}}]
-  {:auth (sanitize-url auth-url "/auth/tokens")
-   :domain {:description description
-            :enabled enabled
-            :name name}})
 
 ;==========================================================================
 ; Identity protocol
@@ -353,11 +342,12 @@
                        :query-params query-params)]
     (sr/send-request req)))
 
+
 (defrecord ProjectV3 [^String description
                       ^String domain_id
                       ^String enabled
                       ^String name])
-(defn make-project
+(defn make-project-v3
   "Creates a project
 
   KeyArgs:
@@ -377,6 +367,13 @@
         req (make-rest :auth auth :svc-name svc :url-end "projects" :method :post
                        :body body)]
       (sr/send-request req)))
+
+
+(defn project-delete
+  "Deletes a project"
+  [auth svc project-id]
+  (let [req (make-rest :auth auth :svc-name svc :url-end (format "projects/%s" project-id) :method :delete)]
+    (sr/send-request req)))
 
 
 ; hierarchy is a pseudo grammar rule for the JSON structure
@@ -402,11 +399,22 @@
     (sr/send-request req)))
 
 
+(defn user-list-roles
+  "Retrieves the roles for a user"
+  [auth svc user-id & {:keys [query-params]}]
+  (let [req (make-rest :auth auth :svc-name svc :url-end (format "users/%s/roles" user-id) :method :get
+                       :query-params query-params)]
+    (sr/send-request req)))
+
+
 (defn find-user-by-name
   "Takes the list of users (as returned from users-list) and returns matches by name
   Args:
-    - user-list: the :body returned from users-list"
-  [user-list])
+    - name: The name to search on
+    - users: the returned map from users-list"
+  [name users]
+  (let [user-list ((:body users) "users")]
+    (filter #(= name (% "name")) user-list)))
 
 
 (defrecord UserV3 [^String default_project_id
@@ -437,3 +445,11 @@
         req (make-rest :auth auth :svc-name svc :url-end "users" :method :post
                        :body body)]
     (sr/send-request req)))
+
+
+(defn user-delete
+  "Deletes the user"
+  [auth svc user-id]
+  (let [req (make-rest :auth auth :svc-name svc :url-end (format "users/%s" user-id) :method :delete)]
+    (sr/send-request req)))
+

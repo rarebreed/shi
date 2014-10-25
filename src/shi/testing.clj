@@ -11,10 +11,10 @@
 (require '[org.httpkit.client :as http])
 (import '[shi.api.keystone Credentials CredentialsV3 ProjectV3 UserV3])
 
-(def cred3 (ks/make-creds-v3 :userid (cfg/config :user-name)
-                             :auth-url (cfg/config :auth-url)
+(def cred3 (ks/make-creds-v3 :userid ((cfg/conf) :user-name)
+                             :auth-url ((cfg/conf) :auth-url)
                              :authmethod "password"
-                             :secret (cfg/config :user-pass)))
+                             :secret ((cfg/conf) :user-pass)))
 (def auth (ks/authorize cred3))
 (def catalog (ks/get-catalog auth))
 

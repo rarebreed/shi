@@ -37,4 +37,3 @@
                 auth)]
         final))
 
-(def config (conf))
