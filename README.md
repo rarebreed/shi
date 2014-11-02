@@ -11,17 +11,20 @@ this is my first serious clojure project, and I am in many ways learning clojure
 Having worked a little with the python official client (eg python-keystoneclient, etc), and
 OpenStack's tempest, I found myself wishing for something a little more rigorous.  Even though
 clojure is a dynamic language, it does allow for type hinting (or Typed Clojure aka core.typed).
-It also has pre and post condition assertions built into the language.  
+It also has pre and post condition assertions built into the language.  So shi will endeavour
+to use as many assertions as possible such as type hinting, use of pre and post maps, and 
+possibly typed clojure in the future.
 
 ## Usage
 
 After cloning this project, the first step is to install leinengen.  Leinengen is used as
-the build tool for most clojure projects.  Change directory into shi and run the following:
+the build tool for most clojure projects.  You will also need to configure some environment 
+variables or Change directory into shi and run the following:
 
     lein repl
 
 This will provide a clojure based nREPL and will download all the necessary dependencies
-for you.
+for you.  By default, it will run in a shi.testing namespace.
 
 ### Configuration
 

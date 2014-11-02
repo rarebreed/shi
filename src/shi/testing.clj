@@ -9,6 +9,9 @@
 (require '[clojure.reflect :as refl])
 (require '[cheshire.core :as ches])
 (require '[org.httpkit.client :as http])
+(require '[clj-ssh.cli :as sshc])
+(require '[clj-commons-exec :as exec])
+
 (import '[shi.api.keystone Credentials CredentialsV3 ProjectV3 UserV3])
 
 (def cred3 (ks/make-creds-v3 :userid ((cfg/conf) :user-name)

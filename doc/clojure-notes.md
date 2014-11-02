@@ -159,3 +159,25 @@ as::
       ^{:skipped ["single-node"]}
       ...
       )
+
+
+Modifying a map based on a sequence
+===================================
+
+Let's say you have a map, and you want to add keys (perhaps conditionally, perhaps not) to this map.  The first
+thought was to do this recursively.  By why go through that trouble?  This is where reduce is your friend.  But
+first, let's understand why you need to do this recursively or through reduce.
+
+Since clojure's data types are immutable, try this code:
+
+Here's one way to do this recursively:
+
+    (loop [m {:1 1 :2 2}
+           c [3 4 5]
+      (let [h (first c)
+            t (rest c)]
+        (if (not h)
+          m
+          (recur (assoc m  (keyword (str h)) h) t))))
+        
+      

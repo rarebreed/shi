@@ -1,0 +1,10 @@
+{:auth-url ""      ; the authentication keystone url
+ :user ""          ; the user to authenticate
+ :userpass ""      ; the user password or token
+ :domain-id ""     ; the domain id the user belongs to
+ :domain-name ""   ; the domain name of the user (not needed if domain-id is used)
+ :version ""       ; the keystone version
+ :project {:enabled false
+           :name ""
+           }
+ }

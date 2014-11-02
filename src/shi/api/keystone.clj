@@ -143,7 +143,7 @@
   (get-service-info auth svc-name))
 
 
-(defmethod get-rest-basics true [auth svc-name]
+(defmethod get-rest-basics true [auth ^String svc-name]
   (let [keystone (get-service-info auth :keystone)
         token (:token keystone)
         v2url (:url keystone)
@@ -188,6 +188,13 @@
   (create-authcreds [this] "Creates the json request body for the token")
   (authorize [this] "Makes a REST call to get token and returns response")
   (service-catalog [this resp]))
+
+
+(defn service-version [auth]
+  (if (= (auth :version) "v2.0")
+    :keystone
+    :keystone-v3))
+
 
 ;==========================================================================
 ; Credentials methods that implement Identity protocol
@@ -256,7 +263,8 @@
   "
   [& {:keys [username userid authmethod secret domain auth-url]
       :as opts
-      :or {authmethod "password"}}]
+      :or {authmethod "password"
+           domain "Domain"}}]
   (let [authtype (keyword authmethod)
         user  (cond
                 (and (nil? domain) (nil? userid)) (do
@@ -337,8 +345,8 @@
 ; projects related functions
 ;============================================================================
 
-(defn projects-list [auth svc & {:keys [query-params]}]
-  (let [req (make-rest :auth auth :svc-name svc :url-end "projects" :method :get
+(defn projects-list [auth & {:keys [query-params]}]
+  (let [req (make-rest :auth auth :svc-name (service-version auth) :url-end "projects" :method :get
                        :query-params query-params)]
     (sr/send-request req)))
 
